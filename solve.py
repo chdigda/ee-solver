@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from config import GEMINI_API_KEY, RESULT_FILE
-from gemini_client import calculation_log, solve_text, solve_with_image
+from gemini_client import calculation_log, solution_steps, solve_text, solve_with_image
 
 
 def save_result(answer: str) -> None:
@@ -54,6 +54,12 @@ def main() -> None:
     print("=" * 60)
     print(answer)
     print("=" * 60)
+
+    # 풀이 단계 출력
+    if solution_steps:
+        print(f"\n📋 풀이 단계 ({len(solution_steps)}단계):")
+        for step in solution_steps:
+            print(f"  {step}")
 
     # MCP 계산 기록 출력
     if calculation_log:

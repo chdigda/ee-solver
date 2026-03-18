@@ -421,6 +421,20 @@
       }
     });
 
+    // ── 파일을 base64로 변환 ──
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          // "data:image/png;base64,XXXX" → "XXXX" 부분만 추출
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
     // ── 풀이 요청 ──
     async function submitSolve() {
       const question = questionInput.value.trim();
@@ -435,14 +449,18 @@
       btnText.textContent = '풀이 중...';
       resultSection.style.display = 'none';
 
-      const formData = new FormData();
-      formData.append('question', question);
+      const body = { question };
       if (selectedFile) {
-        formData.append('image', selectedFile);
+        body.image = await fileToBase64(selectedFile);
+        body.mime_type = selectedFile.type || 'image/png';
       }
 
       try {
-        const res = await fetch('/solve', { method: 'POST', body: formData });
+        const res = await fetch('/solve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
         const data = await res.json();
 
         resultSection.style.display = 'block';

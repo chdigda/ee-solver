@@ -6,6 +6,7 @@ Phase 3: Function Calling + MCP Calculator tool loop
 """
 
 import mimetypes
+import re
 from pathlib import Path
 
 from google import genai
@@ -133,6 +134,29 @@ SYSTEM_PROMPT = """\
 # 계산 기록 저장
 calculation_log: list[dict] = []
 
+# 풀이 단계 저장
+solution_steps: list[str] = []
+
+
+def _parse_steps(text: str) -> list[str]:
+    """Gemini 응답에서 번호 매긴 풀이 단계를 추출한다.
+
+    "1. ...", "2. ...", "**1.**", "**단계 1:**" 등의 패턴을 인식한다.
+    """
+    lines = text.split("\n")
+    steps = []
+    # "1. ", "1) ", "**1.** ", "**단계 1:**" 등
+    step_pattern = re.compile(r"^\s*\**\s*(?:단계\s*)?\d+[\.\)]\**\s*:?\s*(.+)")
+
+    for line in lines:
+        match = step_pattern.match(line)
+        if match:
+            # 마크다운 볼드 제거 후 추가
+            step_text = line.strip().lstrip("*").strip()
+            steps.append(step_text)
+
+    return steps
+
 
 def _get_config() -> genai.types.GenerateContentConfig:
     """Gemini 호출용 공통 설정을 반환한다."""
@@ -211,6 +235,7 @@ def _tool_loop(response, contents: list) -> str:
 def solve_text(question: str) -> str:
     """텍스트 질문을 Gemini에 전달하고 답변을 받는다 (도구 사용 포함)."""
     calculation_log.clear()
+    solution_steps.clear()
 
     contents = [question]
     response = client.models.generate_content(
@@ -218,12 +243,15 @@ def solve_text(question: str) -> str:
         contents=contents,
         config=_get_config(),
     )
-    return _tool_loop(response, contents)
+    answer = _tool_loop(response, contents)
+    solution_steps.extend(_parse_steps(answer))
+    return answer
 
 
 def solve_with_image(question: str, image_path: str) -> str:
     """텍스트 질문 + 이미지를 Gemini에 전달하고 답변을 받는다 (도구 사용 포함)."""
     calculation_log.clear()
+    solution_steps.clear()
 
     path = Path(image_path)
     mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
@@ -238,7 +266,9 @@ def solve_with_image(question: str, image_path: str) -> str:
         contents=contents,
         config=_get_config(),
     )
-    return _tool_loop(response, contents)
+    answer = _tool_loop(response, contents)
+    solution_steps.extend(_parse_steps(answer))
+    return answer
 
 
 def solve_with_image_bytes(
@@ -246,6 +276,7 @@ def solve_with_image_bytes(
 ) -> str:
     """텍스트 질문 + 이미지 바이트를 Gemini에 전달한다 (웹 업로드용)."""
     calculation_log.clear()
+    solution_steps.clear()
 
     contents = [
         genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
@@ -256,4 +287,6 @@ def solve_with_image_bytes(
         contents=contents,
         config=_get_config(),
     )
-    return _tool_loop(response, contents)
+    answer = _tool_loop(response, contents)
+    solution_steps.extend(_parse_steps(answer))
+    return answer
