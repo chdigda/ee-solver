@@ -11,11 +11,29 @@
 """
 
 import json
+import re
 
 import sympy as sp
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("ee-calculator")
+
+# SI 접두사 배율 (모듈 레벨)
+_PREFIX_MAP = {
+    "T": 1e12, "G": 1e9, "M": 1e6, "k": 1e3, "": 1,
+    "m": 1e-3, "u": 1e-6, "μ": 1e-6, "n": 1e-9, "p": 1e-12,
+}
+_SORTED_PREFIXES = sorted(
+    (p for p in _PREFIX_MAP if p), key=len, reverse=True
+)
+
+
+def _parse_unit(unit_str: str) -> tuple[str, str]:
+    """접두사와 기본 단위를 분리한다."""
+    for prefix in _SORTED_PREFIXES:
+        if unit_str.startswith(prefix):
+            return prefix, unit_str[len(prefix):]
+    return "", unit_str
 
 
 # ── Tool 1: calculate ──────────────────────────────────────
@@ -29,8 +47,7 @@ def calculate(expression: str) -> str:
     try:
         result = sp.sympify(expression, rational=True)
         evaluated = result.evalf()
-        # 정수로 떨어지면 정수로 표시
-        if evaluated == int(evaluated):
+        if evaluated.is_real and evaluated == int(evaluated):
             return str(int(evaluated))
         return str(evaluated)
     except Exception as e:
@@ -115,36 +132,15 @@ def unit_convert(value: float, from_unit: str, to_unit: str) -> str:
         from_unit: 원래 단위. 예: "mA", "kV", "uF", "MHz"
         to_unit: 변환할 단위. 예: "A", "V", "F", "Hz"
     """
-    # SI 접두사 배율
-    prefix_map = {
-        "T": 1e12,
-        "G": 1e9,
-        "M": 1e6,
-        "k": 1e3,
-        "": 1,
-        "m": 1e-3,
-        "u": 1e-6,
-        "μ": 1e-6,
-        "n": 1e-9,
-        "p": 1e-12,
-    }
-
-    def parse_unit(unit_str: str) -> tuple[str, str]:
-        """접두사와 기본 단위를 분리한다."""
-        for prefix in sorted(prefix_map.keys(), key=len, reverse=True):
-            if prefix and unit_str.startswith(prefix):
-                return prefix, unit_str[len(prefix) :]
-        return "", unit_str
-
     try:
-        from_prefix, from_base = parse_unit(from_unit)
-        to_prefix, to_base = parse_unit(to_unit)
+        from_prefix, from_base = _parse_unit(from_unit)
+        to_prefix, to_base = _parse_unit(to_unit)
 
         if from_base != to_base:
             return f"단위 불일치: {from_base} ≠ {to_base}"
 
-        from_scale = prefix_map.get(from_prefix)
-        to_scale = prefix_map.get(to_prefix)
+        from_scale = _PREFIX_MAP.get(from_prefix)
+        to_scale = _PREFIX_MAP.get(to_prefix)
         if from_scale is None or to_scale is None:
             return f"알 수 없는 접두사: {from_prefix} 또는 {to_prefix}"
 
@@ -164,8 +160,9 @@ def complex_calc(expression: str) -> str:
                     허수 단위는 j 또는 I 사용 가능
     """
     try:
-        # j → I (sympy 허수단위) 변환
-        expr_str = expression.replace("j", "*I").replace("J", "*I")
+        # 숫자 뒤의 j만 *I로 변환 (함수명 등의 j는 건드리지 않음)
+        expr_str = re.sub(r'(\d)j\b', r'\1*I', expression)
+        expr_str = re.sub(r'(\d)J\b', r'\1*I', expr_str)
         result = sp.sympify(expr_str, rational=True)
         result = sp.simplify(result)
 

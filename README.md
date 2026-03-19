@@ -1,14 +1,16 @@
-# ⚡ EE-Solver
+# EE-Solver
 
-전기공학 문제를 풀어주는 웹앱. Gemini AI + MCP 수학 계산기 조합.
+전기공학 문제 풀이 API 서버. Gemini AI + MCP 계산기 조합.
 
-회로도 이미지를 올리면 회로를 분석하고, 모든 수치 계산은 sympy로 정확하게 처리한다.
+회로도 이미지와 문제를 JSON으로 보내면, 단계별 풀이와 정확한 수치 계산 결과를 JSON으로 돌려준다.
+n8n 워크플로우, Android 앱, 웹 브라우저 등 JSON을 보낼 수 있는 모든 클라이언트에서 사용 가능.
 
 ## 기능
 
-- 텍스트 질문 / 이미지(회로도) 인식
-- Gemini Function Calling → sympy 수학 엔진 (정확한 계산)
+- 텍스트 질문 / 이미지(회로도) 인식 (Gemini 멀티모달)
+- Gemini Function Calling → sympy 수학 엔진 (정밀 계산)
 - 단계별 풀이 + 사용 법칙 표시
+- JSON 스키마 기반 입출력 (n8n 등 외부 도구 연동)
 - 웹 UI (다크테마, 수식 렌더링, 이미지 드래그앤드롭/붙여넣기)
 
 ## 빠른 시작
@@ -33,7 +35,7 @@ cp .env.example .env
 # .env 파일을 열어서 GEMINI_API_KEY에 본인 키 입력
 ```
 
-### 4-A. 웹앱 실행
+### 4. 실행
 
 ```bash
 uvicorn server:app --port 8100
@@ -41,7 +43,32 @@ uvicorn server:app --port 8100
 
 브라우저에서 http://localhost:8100 접속
 
-### 4-B. CLI 실행
+### 5. API 호출 예시
+
+```bash
+curl -X POST http://localhost:8100/solve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "이 회로에서 전류를 구해라",
+    "image": "base64 인코딩 이미지",
+    "mime_type": "image/png"
+  }'
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "answer": "전류는 2A입니다. ...",
+  "solution_steps": ["1. 옴의 법칙 적용: V=IR", "2. I = 10/5 = 2A"],
+  "calculations": [
+    {"tool": "calculate", "args": {"expression": "10/5"}, "result": "2"}
+  ],
+  "error": null
+}
+```
+
+### CLI 실행 (개발용)
 
 ```bash
 # 텍스트만
@@ -55,7 +82,7 @@ python solve.py "이 회로에서 전류를 구해라" --image 회로.jpg
 
 ```
 ee-solver/
-├── server.py            # FastAPI 웹 서버
+├── server.py            # FastAPI 서버 (JSON API)
 ├── solve.py             # CLI 진입점
 ├── gemini_client.py     # Gemini API + Function Calling + tool loop
 ├── config.py            # 설정 (dotenv)
@@ -73,7 +100,10 @@ ee-solver/
 
 | 항목 | 기술 |
 |------|------|
-| LLM | Google Gemini |
+| LLM | Google Gemini 2.5 Pro |
 | 수학 엔진 | sympy (MCP 도구) |
-| 백엔드 | FastAPI |
+| 백엔드 | FastAPI + Uvicorn |
 | 프론트엔드 | Vanilla HTML/JS + KaTeX |
+| 데이터 형식 | JSON (base64 이미지 포함) |
+| 외부 연동 | n8n HTTP Request 노드 |
+| 모바일 | Android APK (예정) |

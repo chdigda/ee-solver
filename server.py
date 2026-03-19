@@ -16,12 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from config import GEMINI_API_KEY
-from gemini_client import (
-    calculation_log,
-    solution_steps,
-    solve_text,
-    solve_with_image_bytes,
-)
+from gemini_client import solve_text, solve_with_image_bytes
 
 app = FastAPI(title="EE-Solver", description="전기공학 문제 풀이 API")
 
@@ -36,6 +31,9 @@ app.add_middleware(
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_DIR.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# index.html 캐싱 (매 요청마다 파일 읽기 방지)
+_INDEX_HTML = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
 
 # ── JSON 스키마 정의 ──────────────────────────────────────
@@ -59,8 +57,7 @@ class SolveResponse(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """메인 페이지 서빙."""
-    index_file = STATIC_DIR / "index.html"
-    return index_file.read_text(encoding="utf-8")
+    return _INDEX_HTML
 
 
 @app.get("/health")
@@ -71,23 +68,19 @@ async def health():
 
 @app.post("/solve", response_model=SolveResponse)
 async def solve(req: SolveRequest):
-    """문제 풀이 API (JSON).
-
-    입력: {"question": "...", "image": "base64...", "mime_type": "image/png"}
-    출력: {"success": true, "answer": "...", "calculations": [...]}
-    """
+    """문제 풀이 API (JSON)."""
     try:
         if req.image:
             image_bytes = base64.b64decode(req.image)
-            answer = solve_with_image_bytes(req.question, image_bytes, req.mime_type)
+            result = solve_with_image_bytes(req.question, image_bytes, req.mime_type)
         else:
-            answer = solve_text(req.question)
+            result = solve_text(req.question)
 
         return SolveResponse(
             success=True,
-            answer=answer,
-            solution_steps=list(solution_steps),
-            calculations=list(calculation_log),
+            answer=result.answer,
+            solution_steps=result.solution_steps,
+            calculations=result.calculation_log,
         )
     except Exception as e:
         return SolveResponse(

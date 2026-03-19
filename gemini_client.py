@@ -7,6 +7,7 @@ Phase 3: Function Calling + MCP Calculator tool loop
 
 import mimetypes
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from google import genai
@@ -131,42 +132,35 @@ SYSTEM_PROMPT = """\
 - 최종 답은 명확하게 표시해라.
 """
 
-# 계산 기록 저장
-calculation_log: list[dict] = []
+# Gemini 호출 설정 (모듈 레벨에서 1회 생성)
+_GEMINI_CONFIG = genai.types.GenerateContentConfig(
+    system_instruction=SYSTEM_PROMPT,
+    tools=[genai.types.Tool(function_declarations=TOOL_DECLARATIONS)],
+)
 
-# 풀이 단계 저장
-solution_steps: list[str] = []
+
+@dataclass
+class SolveResult:
+    """풀이 결과를 담는 컨테이너. 요청별로 독립적."""
+    answer: str = ""
+    solution_steps: list[str] = field(default_factory=list)
+    calculation_log: list[dict] = field(default_factory=list)
 
 
 def _parse_steps(text: str) -> list[str]:
-    """Gemini 응답에서 번호 매긴 풀이 단계를 추출한다.
-
-    "1. ...", "2. ...", "**1.**", "**단계 1:**" 등의 패턴을 인식한다.
-    """
-    lines = text.split("\n")
+    """Gemini 응답에서 번호 매긴 풀이 단계를 추출한다."""
     steps = []
-    # "1. ", "1) ", "**1.** ", "**단계 1:**" 등
     step_pattern = re.compile(r"^\s*\**\s*(?:단계\s*)?\d+[\.\)]\**\s*:?\s*(.+)")
 
-    for line in lines:
-        match = step_pattern.match(line)
-        if match:
-            # 마크다운 볼드 제거 후 추가
+    for line in text.split("\n"):
+        if step_pattern.match(line):
             step_text = line.strip().lstrip("*").strip()
             steps.append(step_text)
 
     return steps
 
 
-def _get_config() -> genai.types.GenerateContentConfig:
-    """Gemini 호출용 공통 설정을 반환한다."""
-    return genai.types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
-        tools=[genai.types.Tool(function_declarations=TOOL_DECLARATIONS)],
-    )
-
-
-def _execute_tool_call(function_call) -> str:
+def _execute_tool_call(function_call, result: SolveResult) -> str:
     """Gemini의 tool_call을 받아 MCP 도구 함수를 실행한다."""
     func_name = function_call.name
     func_args = dict(function_call.args) if function_call.args else {}
@@ -175,43 +169,34 @@ def _execute_tool_call(function_call) -> str:
     if not func:
         return f"알 수 없는 도구: {func_name}"
 
-    result = func(**func_args)
+    tool_result = func(**func_args)
 
-    # 계산 기록 저장
-    calculation_log.append({
+    result.calculation_log.append({
         "tool": func_name,
         "args": func_args,
-        "result": result,
+        "result": tool_result,
     })
-    print(f"  🔧 {func_name}({func_args}) → {result}")
-    return result
+    print(f"  [tool] {func_name}({func_args}) -> {tool_result}")
+    return tool_result
 
 
-def _tool_loop(response, contents: list) -> str:
-    """Gemini 응답에 tool_call이 있으면 실행 후 재전달하는 루프.
-
-    Returns:
-        최종 텍스트 답변
-    """
+def _tool_loop(response, contents: list, result: SolveResult) -> str:
+    """Gemini 응답에 tool_call이 있으면 실행 후 재전달하는 루프."""
     max_iterations = 20
 
-    for _ in range(max_iterations):
-        # 모든 parts에서 function_call 찾기
+    for i in range(max_iterations):
         parts = response.candidates[0].content.parts
         function_calls = [p for p in parts if p.function_call]
 
         if not function_calls:
-            # tool_call 없음 → 최종 답변
             return response.text
 
-        # 모델 응답을 contents에 추가
         contents.append(response.candidates[0].content)
 
-        # 모든 tool_call 실행 후 응답 전달
         response_parts = []
         for part in function_calls:
             fc = part.function_call
-            tool_result = _execute_tool_call(fc)
+            tool_result = _execute_tool_call(fc, result)
             response_parts.append(
                 genai.types.Part.from_function_response(
                     name=fc.name,
@@ -226,67 +211,45 @@ def _tool_loop(response, contents: list) -> str:
         response = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=contents,
-            config=_get_config(),
+            config=_GEMINI_CONFIG,
         )
 
-    return response.text
+    print(f"[warning] tool loop exhausted after {max_iterations} iterations")
+    return response.text or ""
 
 
-def solve_text(question: str) -> str:
-    """텍스트 질문을 Gemini에 전달하고 답변을 받는다 (도구 사용 포함)."""
-    calculation_log.clear()
-    solution_steps.clear()
+def _solve(contents: list) -> SolveResult:
+    """공통 풀이 로직. contents를 Gemini에 전달하고 tool loop를 실행한다."""
+    result = SolveResult()
 
-    contents = [question]
     response = client.models.generate_content(
         model=GEMINI_MODEL,
         contents=contents,
-        config=_get_config(),
+        config=_GEMINI_CONFIG,
     )
-    answer = _tool_loop(response, contents)
-    solution_steps.extend(_parse_steps(answer))
-    return answer
+    result.answer = _tool_loop(response, contents, result)
+    result.solution_steps = _parse_steps(result.answer)
+    return result
 
 
-def solve_with_image(question: str, image_path: str) -> str:
-    """텍스트 질문 + 이미지를 Gemini에 전달하고 답변을 받는다 (도구 사용 포함)."""
-    calculation_log.clear()
-    solution_steps.clear()
+def solve_text(question: str) -> SolveResult:
+    """텍스트 질문을 Gemini에 전달하고 답변을 받는다."""
+    return _solve([question])
 
+
+def solve_with_image(question: str, image_path: str) -> SolveResult:
+    """텍스트 질문 + 이미지 파일을 Gemini에 전달한다."""
     path = Path(image_path)
     mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
-    image_data = path.read_bytes()
-
-    contents = [
-        genai.types.Part.from_bytes(data=image_data, mime_type=mime_type),
-        question,
-    ]
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=contents,
-        config=_get_config(),
-    )
-    answer = _tool_loop(response, contents)
-    solution_steps.extend(_parse_steps(answer))
-    return answer
+    return solve_with_image_bytes(question, path.read_bytes(), mime_type)
 
 
 def solve_with_image_bytes(
     question: str, image_bytes: bytes, mime_type: str
-) -> str:
-    """텍스트 질문 + 이미지 바이트를 Gemini에 전달한다 (웹 업로드용)."""
-    calculation_log.clear()
-    solution_steps.clear()
-
+) -> SolveResult:
+    """텍스트 질문 + 이미지 바이트를 Gemini에 전달한다."""
     contents = [
         genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
         question,
     ]
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=contents,
-        config=_get_config(),
-    )
-    answer = _tool_loop(response, contents)
-    solution_steps.extend(_parse_steps(answer))
-    return answer
+    return _solve(contents)
