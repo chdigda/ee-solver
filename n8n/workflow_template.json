@@ -1,0 +1,83 @@
+{
+  "name": "EE-Solver 문제 풀이",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ee-solve",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "trigger",
+      "name": "Webhook 트리거",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8100/solve",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ question: $json.body.question, image: $json.body.image || null, mime_type: $json.body.mime_type || 'image/png', rag_context: $json.body.rag_context || [], rag_enabled: $json.body.rag_enabled !== undefined ? $json.body.rag_enabled : true }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "ee-solver",
+      "name": "EE-Solver API 호출",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "response",
+      "name": "응답 반환",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [720, 300]
+    }
+  ],
+  "connections": {
+    "Webhook 트리거": {
+      "main": [
+        [
+          {
+            "node": "EE-Solver API 호출",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EE-Solver API 호출": {
+      "main": [
+        [
+          {
+            "node": "응답 반환",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -10,6 +10,7 @@ n8n 워크플로우, Android 앱, 웹 브라우저 등 JSON을 보낼 수 있는
 - 텍스트 질문 / 이미지(회로도) 인식 (Gemini 멀티모달)
 - Gemini Function Calling → sympy 수학 엔진 (정밀 계산)
 - 단계별 풀이 + 사용 법칙 표시
+- RAG 강의자료 컨텍스트 주입 (on/off 전환)
 - JSON 스키마 기반 입출력 (n8n 등 외부 도구 연동)
 - 웹 UI (다크테마, 수식 렌더링, 이미지 드래그앤드롭/붙여넣기)
 
@@ -46,12 +47,20 @@ uvicorn server:app --port 8100
 ### 5. API 호출 예시
 
 ```bash
+# 기본 호출
 curl -X POST http://localhost:8100/solve \
   -H "Content-Type: application/json" \
   -d '{
-    "question": "이 회로에서 전류를 구해라",
-    "image": "base64 인코딩 이미지",
-    "mime_type": "image/png"
+    "question": "10V 전원에 2옴과 3옴 직렬저항이 연결되어 있다. 전류를 구해라"
+  }'
+
+# RAG 강의자료 포함 호출
+curl -X POST http://localhost:8100/solve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "테브난 등가회로를 구해라",
+    "rag_context": ["테브난 정리: 임의의 선형 2단자 회로는 Vth와 Rth로 등가변환 가능"],
+    "rag_enabled": true
   }'
 ```
 
@@ -64,6 +73,7 @@ curl -X POST http://localhost:8100/solve \
   "calculations": [
     {"tool": "calculate", "args": {"expression": "10/5"}, "result": "2"}
   ],
+  "rag_used": false,
   "error": null
 }
 ```
@@ -82,19 +92,32 @@ python solve.py "이 회로에서 전류를 구해라" --image 회로.jpg
 
 ```
 ee-solver/
-├── server.py            # FastAPI 서버 (JSON API)
+├── server.py            # FastAPI 서버 (JSON API + 웹 GUI)
 ├── solve.py             # CLI 진입점
-├── gemini_client.py     # Gemini API + Function Calling + tool loop
+├── gemini_client.py     # Gemini API + Function Calling + tool loop + RAG 주입
 ├── config.py            # 설정 (dotenv)
 ├── mcp_calculator/      # sympy 기반 수학 도구 (5개)
 │   ├── __init__.py
 │   └── server.py
 ├── static/
 │   └── index.html       # 웹 UI
+├── n8n/                 # n8n 워크플로우 템플릿
+│   ├── workflow_template.json
+│   └── workflow_with_rag.json
 ├── requirements.txt
 ├── .env.example         # 환경 설정 템플릿
 └── ARCHITECTURE.md      # 아키텍처 문서
 ```
+
+## n8n 연동
+
+`n8n/` 폴더에 Import 가능한 워크플로우 템플릿이 있다.
+
+1. n8n에서 Import workflow → `workflow_template.json` 선택
+2. HTTP Request 노드의 URL을 ee-solver 서버 주소로 설정
+3. 실행
+
+RAG 포함 워크플로우는 `workflow_with_rag.json` 사용. 벡터DB 노드를 직접 설정해야 한다.
 
 ## 기술 스택
 

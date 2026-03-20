@@ -253,3 +253,34 @@ def solve_with_image_bytes(
         question,
     ]
     return _solve(contents)
+
+
+def solve_with_rag(
+    question: str,
+    rag_context: list[str],
+    image_bytes: bytes | None = None,
+    mime_type: str = "image/png",
+) -> SolveResult:
+    """n8n RAG 파이프라인에서 받은 강의자료 컨텍스트를 포함하여 풀이한다.
+
+    rag_context를 프롬프트 앞에 주입하고, 이미지가 있으면 함께 전달한다.
+    """
+    # RAG 컨텍스트를 텍스트 블록으로 조립
+    rag_block = (
+        "--- 참고 강의자료 (아래 내용을 풀이에 활용해라) ---\n"
+        + "\n\n".join(rag_context)
+        + "\n--- 강의자료 끝 ---\n\n"
+    )
+
+    contents = []
+
+    # 이미지가 있으면 먼저 추가
+    if image_bytes:
+        contents.append(
+            genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        )
+
+    # RAG 컨텍스트 + 질문
+    contents.append(rag_block + question)
+
+    return _solve(contents)

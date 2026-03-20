@@ -1,0 +1,129 @@
+{
+  "name": "EE-Solver + RAG 파이프라인",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ee-solve-rag",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "trigger",
+      "name": "Webhook 트리거",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "notes": "입력: { question: str, image?: str(base64), mime_type?: str }"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve",
+        "note_placeholder": "여기에 벡터 스토어 노드를 연결하세요 (Pinecone, Qdrant, Supabase 등). question을 쿼리로 사용하여 관련 강의자료 청크를 검색합니다."
+      },
+      "id": "rag-placeholder",
+      "name": "RAG 검색 (설정 필요)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [440, 300],
+      "notes": "이 노드를 벡터DB 검색 노드로 교체하세요. 출력에 rag_context 배열을 포함해야 합니다."
+    },
+    {
+      "parameters": {
+        "jsCode": "// RAG 검색 결과를 rag_context 배열로 변환\n// 벡터DB 노드의 출력 형식에 맞게 수정 필요\n\nconst input = $input.first().json;\nconst trigger = $('Webhook 트리거').first().json;\n\n// 벡터DB 검색 결과에서 텍스트 추출 (형식에 맞게 수정)\nconst ragResults = input.documents || input.matches || [input];\nconst ragContext = ragResults.map(doc => \n  doc.pageContent || doc.text || doc.content || JSON.stringify(doc)\n).filter(Boolean);\n\nreturn [{\n  json: {\n    question: trigger.body.question,\n    image: trigger.body.image || null,\n    mime_type: trigger.body.mime_type || 'image/png',\n    rag_context: ragContext,\n    rag_enabled: true\n  }\n}];"
+      },
+      "id": "prepare",
+      "name": "요청 조립",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300],
+      "notes": "RAG 결과 + 원본 질문을 ee-solver 입력 형식으로 조립"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8100/solve",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "ee-solver",
+      "name": "EE-Solver API 호출",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "response",
+      "name": "응답 반환",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1100, 300]
+    }
+  ],
+  "connections": {
+    "Webhook 트리거": {
+      "main": [
+        [
+          {
+            "node": "RAG 검색 (설정 필요)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG 검색 (설정 필요)": {
+      "main": [
+        [
+          {
+            "node": "요청 조립",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "요청 조립": {
+      "main": [
+        [
+          {
+            "node": "EE-Solver API 호출",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EE-Solver API 호출": {
+      "main": [
+        [
+          {
+            "node": "응답 반환",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
