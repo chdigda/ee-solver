@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from pydantic import BaseModel
 
-from config import GEMINI_API_KEY
+from config import AVAILABLE_MODELS, GEMINI_API_KEY, GEMINI_MODEL
 from gemini_client import solve_text, solve_with_image_bytes, solve_with_rag
 
 app = FastAPI(title="EE-Solver", description="전기공학 문제 풀이 API")
@@ -44,6 +44,7 @@ class SolveRequest(BaseModel):
     mime_type: str = "image/png"   # 이미지 MIME 타입
     rag_context: list[str] = []    # n8n RAG 노드에서 보내주는 강의자료 컨텍스트
     rag_enabled: bool = True       # RAG 컨텍스트 주입 on/off
+    model: str | None = None       # 사용할 Gemini 모델. None이면 서버 디폴트.
 
 
 class SolveResponse(BaseModel):
@@ -78,6 +79,18 @@ async def schema():
     }
 
 
+@app.get("/models")
+async def models():
+    """사용 가능한 Gemini 모델 목록과 디폴트 모델 반환.
+
+    웹 UI 드롭다운이 페이지 로드 시 호출한다.
+    """
+    return {
+        "models": AVAILABLE_MODELS,
+        "default": GEMINI_MODEL,
+    }
+
+
 @app.post("/solve", response_model=SolveResponse)
 async def solve(req: SolveRequest):
     """문제 풀이 API (JSON).
@@ -85,7 +98,16 @@ async def solve(req: SolveRequest):
     n8n HTTP Request 노드에서 호출:
     - question + image → 기본 풀이
     - question + image + rag_context → 강의자료 기반 풀이
+    - model 필드로 사용 모델 지정 (생략 시 서버 디폴트)
     """
+    # 모델 검증 (조용히 fallback하면 디버깅 어려움)
+    if req.model is not None and req.model not in AVAILABLE_MODELS:
+        return SolveResponse(
+            success=False,
+            answer="",
+            error=f"unknown model: {req.model}. available: {AVAILABLE_MODELS}",
+        )
+
     try:
         # RAG 컨텍스트 결정
         rag_context = req.rag_context if req.rag_enabled and req.rag_context else None
@@ -100,11 +122,14 @@ async def solve(req: SolveRequest):
                 rag_context=rag_context,
                 image_bytes=image_bytes,
                 mime_type=req.mime_type,
+                model=req.model,
             )
         elif image_bytes:
-            result = solve_with_image_bytes(req.question, image_bytes, req.mime_type)
+            result = solve_with_image_bytes(
+                req.question, image_bytes, req.mime_type, model=req.model
+            )
         else:
-            result = solve_text(req.question)
+            result = solve_text(req.question, model=req.model)
 
         return SolveResponse(
             success=True,
