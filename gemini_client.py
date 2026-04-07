@@ -242,18 +242,41 @@ def _execute_tool_call(function_call, result: SolveResult) -> str:
     return tool_result
 
 
+def _extract_text_from_parts(parts: list) -> str:
+    """parts에서 텍스트 조각을 안전하게 합쳐 반환한다."""
+    text_chunks = [p.text for p in parts if getattr(p, "text", None)]
+    return "\n".join(text_chunks).strip()
+
+
 def _tool_loop(response, contents: list, result: SolveResult, model: str) -> str:
     """Gemini 응답에 tool_call이 있으면 실행 후 재전달하는 루프."""
     max_iterations = 20
 
     for i in range(max_iterations):
-        parts = response.candidates[0].content.parts
-        function_calls = [p for p in parts if p.function_call]
+        candidates = response.candidates or []
+        if not candidates:
+            return response.text or "[모델이 후보 응답을 비워 반환했습니다.]"
+
+        candidate = candidates[0]
+        parts = (candidate.content.parts if candidate.content else None) or []
+        function_calls = [p for p in parts if getattr(p, "function_call", None)]
 
         if not function_calls:
-            return response.text
+            if response.text:
+                return response.text
 
-        contents.append(response.candidates[0].content)
+            part_text = _extract_text_from_parts(parts)
+            if part_text:
+                return part_text
+
+            finish_reason = getattr(candidate, "finish_reason", None)
+            return (
+                "[모델이 빈 응답을 반환했습니다. "
+                f"finish_reason={finish_reason}]"
+            )
+
+        if candidate.content:
+            contents.append(candidate.content)
 
         response_parts = []
         for part in function_calls:
@@ -277,7 +300,15 @@ def _tool_loop(response, contents: list, result: SolveResult, model: str) -> str
         )
 
     print(f"[warning] tool loop exhausted after {max_iterations} iterations")
-    return response.text or ""
+    if response.text:
+        return response.text
+
+    candidates = response.candidates or []
+    if not candidates:
+        return ""
+
+    parts = (candidates[0].content.parts if candidates[0].content else None) or []
+    return _extract_text_from_parts(parts)
 
 
 def _solve(contents: list, model: str | None = None) -> SolveResult:
