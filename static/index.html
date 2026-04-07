@@ -64,6 +64,35 @@
       margin-bottom: 1.5rem;
     }
 
+    .model-select-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .model-select-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .model-select {
+      flex: 1;
+      max-width: 320px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 0.75rem;
+      color: var(--text);
+      font-size: 0.85rem;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .model-select:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
     .question-input {
       width: 100%;
       background: var(--bg);
@@ -300,6 +329,13 @@
 
     <!-- 입력 영역 -->
     <div class="input-section">
+      <div class="model-select-row">
+        <label class="model-select-label" for="modelSelect">모델</label>
+        <select class="model-select" id="modelSelect">
+          <option value="">로딩 중...</option>
+        </select>
+      </div>
+
       <textarea
         class="question-input"
         id="questionInput"
@@ -361,8 +397,50 @@
     const calcLog = document.getElementById('calcLog');
     const calcCount = document.getElementById('calcCount');
     const calcItems = document.getElementById('calcItems');
+    const modelSelect = document.getElementById('modelSelect');
+    const MODEL_STORAGE_KEY = 'ee-solver-model';
 
     let selectedFile = null;
+
+    // ── 모델 목록 로드 ──
+    async function loadModels() {
+      // 서버 호출 실패 시 사용할 fallback (페이지가 망가지지 않도록)
+      const FALLBACK_MODELS = [
+        'gemini-3-flash-preview',
+        'gemini-3.1-flash-lite-preview',
+      ];
+      const FALLBACK_DEFAULT = 'gemini-3-flash-preview';
+
+      let models = FALLBACK_MODELS;
+      let defaultModel = FALLBACK_DEFAULT;
+
+      try {
+        const res = await fetch('/models');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.models) && data.models.length > 0) {
+            models = data.models;
+            defaultModel = data.default || data.models[0];
+          }
+        } else {
+          console.warn('GET /models failed, using fallback list');
+        }
+      } catch (err) {
+        console.warn('GET /models error, using fallback list:', err);
+      }
+
+      // 드롭다운 채우기
+      modelSelect.innerHTML = models
+        .map((m) => `<option value="${m}">${m}</option>`)
+        .join('');
+
+      // localStorage에 저장된 마지막 선택이 현재 목록에 있으면 사용, 아니면 디폴트
+      const stored = localStorage.getItem(MODEL_STORAGE_KEY);
+      modelSelect.value = stored && models.includes(stored) ? stored : defaultModel;
+    }
+
+    // 이 <script> 태그는 body 끝에 있어 위쪽 DOM은 모두 파싱돼 있으므로 즉시 호출 가능
+    loadModels();
 
     // ── 파일 선택/드래그 ──
     fileInput.addEventListener('change', (e) => {
@@ -413,6 +491,13 @@
       }
     });
 
+    // ── 모델 변경 시 localStorage 저장 ──
+    modelSelect.addEventListener('change', () => {
+      if (modelSelect.value) {
+        localStorage.setItem(MODEL_STORAGE_KEY, modelSelect.value);
+      }
+    });
+
     // ── Ctrl+Enter 전송 ──
     questionInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -450,6 +535,9 @@
       resultSection.style.display = 'none';
 
       const body = { question };
+      if (modelSelect.value) {
+        body.model = modelSelect.value;
+      }
       if (selectedFile) {
         body.image = await fileToBase64(selectedFile);
         body.mime_type = selectedFile.type || 'image/png';
