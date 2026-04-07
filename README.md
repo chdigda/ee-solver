@@ -32,17 +32,23 @@ pip install -r requirements.txt
 ### 3. 환경 설정
 
 ```bash
-cp .env.example .env
+cp env.example .env
 # .env 파일을 열어서 GEMINI_API_KEY에 본인 키 입력
 ```
 
 ### 4. 실행
 
 ```bash
+# 옵션 1: uvicorn 직접 실행
 uvicorn server:app --port 8100
+
+# 옵션 2: 자동 실행 (서버 시작 + 브라우저 자동 열기)
+python start.py
 ```
 
 브라우저에서 http://localhost:8100 접속
+
+> Windows 사용자는 `run.bat`을 더블클릭하면 가상환경 생성, 패키지 설치, `.env` 생성, 서버 시작까지 한 번에 처리된다.
 
 ### 5. API 호출 예시
 
@@ -94,9 +100,11 @@ python solve.py "이 회로에서 전류를 구해라" --image 회로.jpg
 ee-solver/
 ├── server.py            # FastAPI 서버 (JSON API + 웹 GUI)
 ├── solve.py             # CLI 진입점
+├── start.py             # 서버 + 브라우저 자동 실행 헬퍼
+├── run.bat              # Windows 원클릭 설치/실행 스크립트
 ├── gemini_client.py     # Gemini API + Function Calling + tool loop + RAG 주입
 ├── config.py            # 설정 (dotenv)
-├── mcp_calculator/      # sympy 기반 수학 도구 (5개)
+├── mcp_calculator/      # sympy 기반 수학 도구
 │   ├── __init__.py
 │   └── server.py
 ├── static/
@@ -104,8 +112,9 @@ ee-solver/
 ├── n8n/                 # n8n 워크플로우 템플릿
 │   ├── workflow_template.json
 │   └── workflow_with_rag.json
+├── output/              # 결과 파일 저장 디렉토리 (자동 생성)
 ├── requirements.txt
-├── .env.example         # 환경 설정 템플릿
+├── env.example          # 환경 설정 템플릿
 └── ARCHITECTURE.md      # 아키텍처 문서
 ```
 
