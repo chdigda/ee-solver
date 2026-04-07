@@ -242,7 +242,7 @@ def _execute_tool_call(function_call, result: SolveResult) -> str:
     return tool_result
 
 
-def _tool_loop(response, contents: list, result: SolveResult) -> str:
+def _tool_loop(response, contents: list, result: SolveResult, model: str) -> str:
     """Gemini 응답에 tool_call이 있으면 실행 후 재전달하는 루프."""
     max_iterations = 20
 
@@ -271,7 +271,7 @@ def _tool_loop(response, contents: list, result: SolveResult) -> str:
         )
 
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=model,
             contents=contents,
             config=_GEMINI_CONFIG,
         )
@@ -280,41 +280,47 @@ def _tool_loop(response, contents: list, result: SolveResult) -> str:
     return response.text or ""
 
 
-def _solve(contents: list) -> SolveResult:
+def _solve(contents: list, model: str | None = None) -> SolveResult:
     """공통 풀이 로직. contents를 Gemini에 전달하고 tool loop를 실행한다."""
     result = SolveResult()
+    selected_model = model or GEMINI_MODEL
 
     response = client.models.generate_content(
-        model=GEMINI_MODEL,
+        model=selected_model,
         contents=contents,
         config=_GEMINI_CONFIG,
     )
-    result.answer = _tool_loop(response, contents, result)
+    result.answer = _tool_loop(response, contents, result, selected_model)
     result.solution_steps = _parse_steps(result.answer)
     return result
 
 
-def solve_text(question: str) -> SolveResult:
+def solve_text(question: str, model: str | None = None) -> SolveResult:
     """텍스트 질문을 Gemini에 전달하고 답변을 받는다."""
-    return _solve([question])
+    return _solve([question], model=model)
 
 
-def solve_with_image(question: str, image_path: str) -> SolveResult:
+def solve_with_image(
+    question: str, image_path: str, model: str | None = None
+) -> SolveResult:
     """텍스트 질문 + 이미지 파일을 Gemini에 전달한다."""
     path = Path(image_path)
     mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
-    return solve_with_image_bytes(question, path.read_bytes(), mime_type)
+    return solve_with_image_bytes(question, path.read_bytes(), mime_type, model=model)
 
 
 def solve_with_image_bytes(
-    question: str, image_bytes: bytes, mime_type: str
+    question: str,
+    image_bytes: bytes,
+    mime_type: str,
+    model: str | None = None,
 ) -> SolveResult:
     """텍스트 질문 + 이미지 바이트를 Gemini에 전달한다."""
     contents = [
         genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
         question,
     ]
-    return _solve(contents)
+    return _solve(contents, model=model)
 
 
 def solve_with_rag(
@@ -322,6 +328,7 @@ def solve_with_rag(
     rag_context: list[str],
     image_bytes: bytes | None = None,
     mime_type: str = "image/png",
+    model: str | None = None,
 ) -> SolveResult:
     """n8n RAG 파이프라인에서 받은 강의자료 컨텍스트를 포함하여 풀이한다.
 
@@ -345,4 +352,4 @@ def solve_with_rag(
     # RAG 컨텍스트 + 질문
     contents.append(rag_block + question)
 
-    return _solve(contents)
+    return _solve(contents, model=model)
