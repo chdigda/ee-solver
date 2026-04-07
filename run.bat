@@ -54,7 +54,7 @@ if not exist ".env" (
     echo.
     set /p API_KEY="Gemini API 키를 입력하세요: "
     echo GEMINI_API_KEY=%API_KEY%> .env
-    echo GEMINI_MODEL=gemini-2.5-pro>> .env
+    echo GEMINI_MODEL=gemini-3-flash-preview>> .env
     echo.
     echo .env 파일이 생성되었습니다.
 )
