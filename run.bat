@@ -1,76 +1,123 @@
 @echo off
-chcp 65001 >nul
+setlocal
+cd /d "%~dp0"
 title EE-Solver
 
 echo ========================================
-echo   EE-Solver 시작
+echo   EE-Solver starting
 echo ========================================
 echo.
 
-:: Python 확인
-python --version >nul 2>&1
-if errorlevel 1 (
-    echo [오류] Python이 설치되어 있지 않습니다.
-    echo https://www.python.org/downloads/ 에서 설치해주세요.
-    echo 설치 시 "Add Python to PATH" 체크를 꼭 해주세요.
+:: Python check (prefer launcher if available)
+set "PYTHON="
+set "PY_ARGS="
+
+where py >nul 2>&1
+if %errorlevel%==0 (
+    set "PYTHON=py"
+    set "PY_ARGS=-3"
+) else (
+    if exist "%LOCALAPPDATA%\Programs\Python\Launcher\py.exe" (
+        set "PYTHON=%LOCALAPPDATA%\Programs\Python\Launcher\py.exe"
+        set "PY_ARGS=-3"
+    ) else (
+        where python >nul 2>&1
+        if %errorlevel%==0 set "PYTHON=python"
+    )
+)
+
+if not defined PYTHON (
+    for /f "delims=" %%D in ('dir /b /ad "%LOCALAPPDATA%\Programs\Python\Python*" 2^>nul ^| sort /R') do (
+        if exist "%LOCALAPPDATA%\Programs\Python\%%D\python.exe" (
+            set "PYTHON=%LOCALAPPDATA%\Programs\Python\%%D\python.exe"
+            goto :python_found
+        )
+    )
+)
+:python_found
+if not defined PYTHON (
+    echo [ERROR] Python is not installed or not on PATH.
+    echo Install it from https://www.python.org/downloads/
+    echo Make sure "Add Python to PATH" is checked.
+    echo If Python Launcher is available, run: py -3 --version
     pause
     exit /b 1
 )
 
-:: 가상환경 생성 (최초 1회)
+%PYTHON% %PY_ARGS% --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Python execution check failed.
+    echo Try: python --version or py -3 --version
+    pause
+    exit /b 1
+)
+
+%PYTHON% %PY_ARGS% -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Python 3.10+ is required.
+    pause
+    exit /b 1
+)
+
+:: Create virtual environment on first run
 if not exist ".venv" (
-    echo [1/3] 가상환경 생성 중...
-    python -m venv .venv
+    echo [1/3] Creating virtual environment...
+    %PYTHON% %PY_ARGS% -m venv .venv
     if errorlevel 1 (
-        echo [오류] 가상환경 생성 실패
+        echo [ERROR] Failed to create virtual environment
         pause
         exit /b 1
     )
-    echo       완료!
+    echo       Done.
 ) else (
-    echo [1/3] 가상환경 확인... 이미 존재
+    echo [1/3] Virtual environment already exists
 )
 
-:: 가상환경 활성화
+:: Activate virtual environment
 call .venv\Scripts\activate.bat
+set "PYTHON=.venv\Scripts\python.exe"
+set "PY_ARGS="
 
-:: 패키지 설치
-echo [2/3] 패키지 설치 확인 중...
-pip install -r requirements.txt -q
+:: Install packages
+echo [2/3] Checking dependencies...
+%PYTHON% -m pip install -r requirements.txt -q
 if errorlevel 1 (
-    echo [오류] 패키지 설치 실패
+    echo [ERROR] Package installation failed
     pause
     exit /b 1
 )
-echo       완료!
+echo       Done.
 
-:: .env 파일 확인
-if not exist ".env" (
+:: Create .env if missing or empty
+set "ENV_MISSING="
+if not exist ".env" set "ENV_MISSING=1"
+if exist ".env" for %%A in (".env") do if %%~zA==0 set "ENV_MISSING=1"
+if defined ENV_MISSING (
     echo.
     echo ========================================
-    echo   Gemini API 키 설정이 필요합니다.
+    echo   Gemini API key setup is required.
     echo   https://aistudio.google.com/apikey
     echo ========================================
     echo.
-    set /p API_KEY="Gemini API 키를 입력하세요: "
+    set /p API_KEY="Enter your Gemini API key: "
     echo GEMINI_API_KEY=%API_KEY%> .env
     echo GEMINI_MODEL=gemini-3-flash-preview>> .env
     echo.
-    echo .env 파일이 생성되었습니다.
+    echo .env created.
 )
 
-:: 서버 시작
-echo [3/3] 서버 시작 중...
+:: Start server
+echo [3/3] Starting server...
 echo.
 echo ========================================
-echo   브라우저에서 열립니다:
+echo   Browser will open at:
 echo   http://127.0.0.1:8100
 echo.
-echo   종료하려면 이 창을 닫거나 Ctrl+C
+echo   Close this window or press Ctrl+C to stop.
 echo ========================================
 echo.
 
 start http://127.0.0.1:8100
-python -m uvicorn server:app --port 8100
+%PYTHON% -m uvicorn server:app --port 8100
 
 pause
